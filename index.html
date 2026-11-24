@@ -52,6 +52,19 @@ td:first-child,th:first-child{text-align:left}
 .swatches button.sel{box-shadow:0 0 0 3px var(--ink)}
 .swatches button:disabled{opacity:.25}
 .err{color:#b3261e;font-size:14px;min-height:20px;margin-bottom:8px}
+.capHead{display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;font-size:14px}
+.capHead button,.kidHead button{font-size:12px;padding:3px 8px}
+.capOpts{display:grid;gap:6px}
+.capOpt{border:2px solid #e3e7de;border-radius:6px;padding:6px 8px;cursor:pointer;font-size:11px}
+.capOpt:hover{border-color:#b8c4ad}
+.capOpt.sel{border-color:var(--ink)}
+.capOpt .t{font-weight:600;font-size:12px;margin-bottom:3px}
+.capOpt .chips{display:grid;grid-template-columns:repeat(4,1fr);gap:2px 6px}
+.capOpt .hi{font-weight:700;color:#1f7a3a}.capOpt .lo{color:#b3261e}
+.kidHead{display:flex;align-items:center;gap:12px}
+.kidHead h3{margin:0}
+.kidGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px}
+.kidGrid input{font:inherit;padding:5px 8px;border:1px solid #b8c4ad;border-radius:6px;width:100%}
 </style>
 </head>
 <body>
@@ -62,17 +75,37 @@ td:first-child,th:first-child{text-align:left}
     <div class="setupBox"><h3>Your captain</h3>
       <label>Name<input id="youName" value="Riley" maxlength="14"></label>
       <div class="swatches" id="youColors"></div><div class="hint" id="youColorName"></div>
+      <div class="capHead"><b>Captain ratings</b><button id="youReroll">Shuffle options</button></div>
+      <div class="capOpts" id="youCaps"></div>
     </div>
     <div class="setupBox"><h3>CPU captain</h3>
       <label>Name<input id="cpuName" value="Blake" maxlength="14"></label>
       <div class="swatches" id="cpuColors"></div><div class="hint" id="cpuColorName"></div>
+      <div class="capHead"><b>Captain ratings</b><button id="cpuReroll">Shuffle options</button></div>
+      <div class="capOpts" id="cpuCaps"></div>
     </div>
     <div class="setupBox"><h3>Teams</h3>
       <label>Players per team, including captain<input type="number" id="perTeam" min="3" max="12" step="1" value="5"></label>
       <div class="hint" id="perTeamHint"></div>
       <label>Player parity (spread of overall ratings)<input type="number" id="parity" min="0" max="1" step="0.1" value="0"></label>
       <div class="hint">0 means every draftable kid averages exactly 3. At 0.5, most kids land between 2.5 and 3.5. Max 1.0.</div>
+      <div style="margin-top:14px;font-size:14px"><b>What the ratings mean</b> <span class="hint">(1 = weakest, 5 = best)</span></div>
+      <ul class="hint" style="margin:6px 0 0;padding-left:18px;line-height:1.45">
+        <li><b>Speed:</b> running forward and back, to chase loose balls and reach the line.</li>
+        <li><b>Agility:</b> moving side to side and changing direction, the key to dodging.</li>
+        <li><b>Throw power:</b> how fast the ball flies; power throws are harder to catch.</li>
+        <li><b>Throw accuracy:</b> how close the ball goes to where it was aimed.</li>
+        <li><b>Throw finesse:</b> spin on finesse throws, which curve late and catch kids off guard.</li>
+        <li><b>Catch power:</b> holding on to hard, fast throws.</li>
+        <li><b>Catch finesse:</b> holding on to spinning, curving throws.</li>
+        <li><b>Awareness:</b> spotting throws early, choosing to catch, dodge or deflect, picking targets, and deflecting with a held ball (80% at 1, 100% at 5).</li>
+      </ul>
     </div>
+  </div>
+  <div class="setupBox" style="max-width:1000px;margin-bottom:16px">
+    <div class="kidHead"><h3>Draftable kids</h3><button id="kidShuffle">Random names</button></div>
+    <div class="hint">Rename any kid before the draft. Their ratings are dealt when you go to the draft.</div>
+    <div class="kidGrid" id="kidNames"></div>
   </div>
   <div class="err" id="setupErr"></div>
   <button id="toDraftBtn">Go to draft</button>
@@ -92,6 +125,11 @@ td:first-child,th:first-child{text-align:left}
     <button data-speed="0">Pause</button><button data-speed="1" class="on">1x</button><button data-speed="2">2x</button><button data-speed="4">4x</button>
     <span style="width:16px"></span>
     <button id="rematchTop">Rematch</button><button id="redraftTop">Redraft</button><button id="setupTop">New setup</button><button id="statsTop" style="display:none">View match stats</button>
+    <span style="width:16px"></span>
+    <label style="font-size:14px;display:flex;align-items:center;gap:6px">Your spacing
+      <span style="font-size:12px;color:#667">Clump</span><input type="range" id="spaceSlider" min="0" max="1" step="0.05" value="0.5"><span style="font-size:12px;color:#667">Spread</span>
+      <b id="spaceVal">0.50</b></label>
+    <span style="font-size:13px;color:#667" id="cpuSpace"></span>
     <span style="margin-left:12px;color:#667;font-size:13px">Hover a player to see their card.</span>
   </div>
   <div class="gameWrap">
@@ -115,8 +153,8 @@ function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random
 
 // Draftable kids: 8 skills (1-5) each. Overall average is 3 plus random spread set by the parity setting
 // (clamped to 1.5-4.5), and no two kids have the same skill profile
-function makeKids(n,sd){
-  const seen=new Set(),kids=[],names=shuffle(NAMES.slice());let tries=0;
+function makeKids(n,sd,names){
+  const seen=new Set(),kids=[];let tries=0;
   while(kids.length<n){
     tries++;
     const total=Math.round(clamp(3+gauss()*sd,1.5,4.5)*8);
@@ -136,12 +174,24 @@ function makeKids(n,sd){
 function rollHand(){return Math.random()<0.125?'left':'right';}
 // Instinct: every kid leans toward catching or dodging; good hands make "catch" more likely
 function rollLean(st){return Math.random()<clamp(0.5+0.12*((st.cPower+st.cFin)/2-st.agility),0.15,0.85)?'catch':'dodge';}
-function makeCaptain(name){const stats={};SKILLS.forEach(([k])=>stats[k]=4);return {name,stats,captain:true,lean:rollLean(stats),hand:rollHand()};}
+function makeCaptain(name,stats){return {name,stats:{...stats},captain:true,lean:rollLean(stats),hand:rollHand()};}
+const ALL4=()=>{const st={};SKILLS.forEach(([k])=>st[k]=4);return st;};
+// Random captain profiles: shuffle points between skills starting from all 4s, so the average stays exactly 4
+function captainOptions(){
+  const seen=new Set(['44444444']),opts=[ALL4()];
+  for(let t=0;opts.length<4&&t<500;t++){
+    const s=Array(8).fill(4),moves=3+Math.floor(Math.random()*5);
+    for(let m=0;m<moves;m++){const i=Math.floor(Math.random()*8),j=Math.floor(Math.random()*8);if(i!==j&&s[i]>1&&s[j]<5){s[i]--;s[j]++;}}
+    const key=s.join('');if(seen.has(key))continue;seen.add(key);
+    const st={};SKILLS.forEach(([k],i)=>st[k]=s[i]);opts.push(st);
+  }
+  return opts;
+}
 const overall=p=>SKILLS.reduce((s,[k])=>s+p.stats[k],0)/8;
 function tagline(p){
-  if(p.captain)return 'Captain · 4 in every skill';
+  if(p.captain&&SKILLS.every(([k])=>p.stats[k]===4))return 'Captain · 4 in every skill';
   const arr=SKILLS.map(([k,l])=>[l,p.stats[k]]).sort((a,b)=>b[1]-a[1]);
-  return `Overall ${overall(p).toFixed(2)} · Best at: ${arr[0][0]}, ${arr[1][0]}`;
+  return `${p.captain?'Captain · ':''}Overall ${overall(p).toFixed(2)} · Best at: ${arr[0][0]}, ${arr[1][0]}`;
 }
 function cardHTML(p){
   return `<div class="nm">${p.name}${p.captain?' ★':''}</div><div class="tag">${tagline(p)}<br>Instinct: <b>${p.lean==='catch'?'Catch first':'Dodge first'}</b> · Throws: <b>${p.hand==='left'?'Left':'Right'}</b></div>`+
@@ -150,10 +200,14 @@ function cardHTML(p){
 
 // ---------- Game setup ----------
 // Internally the user's team is 'red' and the CPU's team is 'blue'; COL and LABEL hold the chosen colors
-const PRESETS=[['Red','#d64545'],['Blue','#3b6fd6'],['Orange','#e07b2a'],['Purple','#8a4fc7'],['Teal','#1f9e8f'],['Pink','#d9529b']];
-const SET={you:{name:'Riley',color:0},cpu:{name:'Blake',color:1},perTeam:5,sd:0};
-const COL={red:PRESETS[0][1],blue:PRESETS[1][1]},LABEL={red:PRESETS[0][0],blue:PRESETS[1][0]};
+// [name, player fill, text color]. Light colors get a darker text shade so names stay readable on white and sage
+const PRESETS=[['Orange','#F46A1F','#C9530F'],['Navy','#002244','#002244'],['Maroon','#8C2131','#8C2131'],['Gold','#F3CD00','#8A7400'],
+  ['Green','#00843D','#00843D'],['Blue','#BBE7F6','#2C7FA0'],['Gray','#A1AEB1','#5E6B6E']];
+const SET={you:{name:'Riley',color:0,caps:captainOptions(),cap:0},cpu:{name:'Blake',color:6,caps:captainOptions(),cap:0},
+  perTeam:5,sd:0,kidNames:shuffle(NAMES.slice()).slice(0,8)};
+const COL={red:PRESETS[0][1],blue:PRESETS[6][1]},TXT={red:PRESETS[0][2],blue:PRESETS[6][2]},LABEL={red:PRESETS[0][0],blue:PRESETS[6][0]};
 const cleanName=(s,d)=>(s||'').replace(/[<>&"']/g,'').trim().slice(0,14)||d;
+const SHORT={speed:'Spd',agility:'Agi',tPower:'T.Pow',tAcc:'T.Acc',tFin:'T.Fin',cPower:'C.Pow',cFin:'C.Fin',aware:'Awr'};
 function renderSetup(){
   ['you','cpu'].forEach(who=>{
     const el=$(who+'Colors'),other=who==='you'?'cpu':'you';el.innerHTML='';
@@ -163,8 +217,29 @@ function renderSetup(){
       b.onclick=()=>{SET[who].color=i;renderSetup();};el.appendChild(b);
     });
     $(who+'ColorName').textContent='Team color: '+PRESETS[SET[who].color][0];
+    const capEl=$(who+'Caps');capEl.innerHTML='';
+    SET[who].caps.forEach((st,i)=>{
+      const d=document.createElement('div');d.className='capOpt'+(SET[who].cap===i?' sel':'');
+      d.innerHTML=`<div class="t">${i?'Option '+i:'Default · 4 in every skill'}</div><div class="chips">`+
+        SKILLS.map(([k])=>`<span class="${st[k]>4?'hi':st[k]<4?'lo':''}">${SHORT[k]} ${st[k]}</span>`).join('')+'</div>';
+      d.onclick=()=>{SET[who].cap=i;renderSetup();};capEl.appendChild(d);
+    });
   });
-  updatePerTeamHint();
+  updatePerTeamHint();renderKidNames();
+}
+// Kid name boxes: one per draftable kid; edits are kept even if the team size shrinks and grows again
+function kidCount(){const n=parseInt($('perTeam').value,10);return 2*((n>=3&&n<=12?n:SET.perTeam)-1);}
+function renderKidNames(){
+  const n=kidCount(),el=$('kidNames');
+  while(SET.kidNames.length<n){
+    const unused=NAMES.filter(x=>!SET.kidNames.includes(x));
+    SET.kidNames.push(unused.length?unused[Math.floor(Math.random()*unused.length)]:'Kid '+(SET.kidNames.length+1));
+  }
+  el.innerHTML='';
+  SET.kidNames.slice(0,n).forEach((nm,i)=>{
+    const inp=document.createElement('input');inp.value=nm;inp.maxLength=14;inp.placeholder='Kid '+(i+1);
+    inp.oninput=()=>{SET.kidNames[i]=inp.value;};el.appendChild(inp);
+  });
 }
 function updatePerTeamHint(){
   const n=parseInt($('perTeam').value,10);
@@ -174,12 +249,15 @@ function goToDraft(){
   const n=parseInt($('perTeam').value,10),sd=parseFloat($('parity').value);
   if(!(n>=3&&n<=12)){$('setupErr').textContent='Players per team must be a whole number from 3 to 12.';return;}
   if(!(sd>=0&&sd<=1)){$('setupErr').textContent='Player parity must be between 0 and 1.0.';return;}
+  const names=SET.kidNames.slice(0,2*(n-1)).map((s,i)=>cleanName(s,'Kid '+(i+1)));
+  const dup=names.find((x,i)=>names.findIndex(y=>y.toLowerCase()===x.toLowerCase())!==i);
+  if(dup){$('setupErr').textContent=`Two kids are both named "${dup}". Give each kid a different name.`;return;}
   $('setupErr').textContent='';
-  SET.perTeam=n;SET.sd=sd;
+  SET.perTeam=n;SET.sd=sd;SET.draftNames=names;
   SET.you.name=cleanName($('youName').value,'Riley');SET.cpu.name=cleanName($('cpuName').value,'Blake');
-  COL.red=PRESETS[SET.you.color][1];LABEL.red=PRESETS[SET.you.color][0];
-  COL.blue=PRESETS[SET.cpu.color][1];LABEL.blue=PRESETS[SET.cpu.color][0];
-  document.documentElement.style.setProperty('--red',COL.red);
+  COL.red=PRESETS[SET.you.color][1];TXT.red=PRESETS[SET.you.color][2];LABEL.red=PRESETS[SET.you.color][0];
+  COL.blue=PRESETS[SET.cpu.color][1];TXT.blue=PRESETS[SET.cpu.color][2];LABEL.blue=PRESETS[SET.cpu.color][0];
+  document.documentElement.style.setProperty('--red',TXT.red);
   newDraft();
 }
 function showSetup(){G=null;overlay.style.display='none';showScreen('setup');renderSetup();}
@@ -190,8 +268,8 @@ let pool=[],teams={red:[],blue:[]},turn='red',draftLog='',draftSort='overall';
 function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id));}
 function newDraft(){
   G=null;overlay.style.display='none';
-  pool=makeKids(2*(SET.perTeam-1),SET.sd);
-  teams={red:[makeCaptain('Captain '+SET.you.name)],blue:[makeCaptain('Captain '+SET.cpu.name)]};
+  pool=makeKids(2*(SET.perTeam-1),SET.sd,SET.draftNames);
+  teams={red:[makeCaptain('Captain '+SET.you.name,SET.you.caps[SET.you.cap])],blue:[makeCaptain('Captain '+SET.cpu.name,SET.cpu.caps[SET.cpu.cap])]};
   turn=Math.random()<.5?'red':'blue';
   draftLog=`Coin flip: ${turn==='red'?'you pick':LABEL.blue+' picks'} first.`;
   showScreen('draft');renderDraft();
@@ -215,8 +293,8 @@ function draftPick(p,team){
 function renderDraft(){
   const done=!pool.length;
   $('draftStatus').textContent=draftLog+' '+(done?'Teams are set. Start the game when you are ready.':turn==='red'?'Your pick: click a kid.':LABEL.blue+' is picking…');
-  $('hdrRed').textContent=LABEL.red+' (You)';$('hdrRed').style.color=COL.red;
-  $('hdrBlue').textContent=LABEL.blue+' (CPU)';$('hdrBlue').style.color=COL.blue;
+  $('hdrRed').textContent=LABEL.red+' (You)';$('hdrRed').style.color=TXT.red;
+  $('hdrBlue').textContent=LABEL.blue+' (CPU)';$('hdrBlue').style.color=TXT.blue;
   ['red','blue'].forEach(t=>{
     const el=$(t==='red'?'rosterRed':'rosterBlue');el.innerHTML='';
     teams[t].forEach(p=>{const d=document.createElement('div');d.textContent=p.name+(p.captain?' ★':'');d.onmousemove=e=>showTip(p,e);d.onmouseleave=hideTip;el.appendChild(d);});
@@ -234,6 +312,7 @@ function renderDraft(){
 // ---------- Game engine ----------
 const W=1000,H=620,CT={x0:50,x1:950,y0:60,y1:500},MID=500,PR=12,BR=6,GAME_LEN=300,HOLD_MAX=5;
 let G=null,simSpeed=1;
+const SPACING={red:0.5,blue:0.5};   // coach spacing slider; the CPU stays at 0.5 for now
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 function gauss(){return Math.sqrt(-2*Math.log(1-Math.random()))*Math.cos(2*Math.PI*Math.random());}
 const fwdSpd=p=>55+28*p.s.speed;      // Speed: forward/back running (toward or away from the line)
@@ -255,17 +334,24 @@ function pCatch(o,b){
 // Deflecting with a held ball depends only on awareness: 100% at 5, minus 5% per point below
 function pBlock(o,b){return 0.75+0.05*o.s.aware;}
 
+// Random spots along the back line, at least a body-width apart: scatter the leftover space randomly between players
+function backLineYs(n){
+  const top=CT.y0+PR+4,len=CT.y1-CT.y0-2*(PR+4),gap=Math.min(2*PR+6,len/Math.max(1,n-1));
+  const free=Math.max(0,len-(n-1)*gap);
+  return shuffle(Array.from({length:n},()=>Math.random()*free).sort((a,b)=>a-b).map((u,i)=>top+u+i*gap));
+}
 function startGame(){
   const players=[];
-  ['red','blue'].forEach(team=>teams[team].forEach((base,i,arr)=>{
+  ['red','blue'].forEach(team=>{const ys=backLineYs(teams[team].length);teams[team].forEach((base,i)=>{
     players.push({base,name:base.name,s:base.stats,team,
-      x:team==='red'?CT.x0+40:CT.x1-40,y:CT.y0+30+i*(CT.y1-CT.y0-60)/(arr.length-1),vx:0,vy:0,
+      x:team==='red'?CT.x0+40:CT.x1-40,y:ys[i],vx:0,vy:0,
       state:'in',entering:false,ball:null,hold:0,wait:0,target:null,retarget:0,fetch:null,react:null,goal:null,goalT:0,dest:null,
       box:{throws:0,hits:0,catches:0,dodges:0,blocks:0,outs:0}});
-  }));
+  });});
   const balls=[0.25,0.5,0.75].map(f=>({x:MID,y:CT.y0+(CT.y1-CT.y0)*f,vx:0,vy:0,state:'free',holder:null,thrower:null,target:null,power:0,spin:0,curve:0}));
   G={players,balls,time:0,countdown:3,over:false,otLogged:false,queue:{red:[],blue:[]}};
   logEl.innerHTML='';overlay.style.display='none';$('statsTop').style.display='none';
+  $('cpuSpace').textContent=`${LABEL.blue} (CPU) spacing: ${SPACING.blue.toFixed(2)}`;
   addLog('Three balls on the center line. Both teams line up for the opening rush.');
   showScreen('game');
 }
@@ -276,6 +362,7 @@ function step(dt){
   G.time+=dt;
   assignFetchers('red');assignFetchers('blue');
   G.players.forEach(p=>updatePlayer(p,dt));
+  separatePlayers();
   G.balls.forEach(b=>updateBall(b,dt));
   checkEnd();
 }
@@ -318,11 +405,28 @@ function steer(p,tx,ty,f,dt,inCourt){
   if(inCourt){p.x=clamp(p.x,minX(p),maxX(p));p.y=clamp(p.y,CT.y0+PR,CT.y1-PR);}
 }
 
+// Personal space: each player's circle is solid, so overlapping players get pushed apart evenly
+// (a few passes so crowds settle), then court players are kept inside their half
+function separatePlayers(){
+  const ps=G.players,min=2*PR;
+  for(let pass=0;pass<3;pass++){
+    for(let i=0;i<ps.length;i++)for(let j=i+1;j<ps.length;j++){
+      const a=ps[i],b=ps[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy);
+      if(d>=min)continue;
+      if(d<1e-3){const ang=Math.random()*Math.PI*2;dx=Math.cos(ang);dy=Math.sin(ang);d=1;}else{dx/=d;dy/=d;}
+      const push=(min-d)/2;
+      a.x-=dx*push;a.y-=dy*push;b.x+=dx*push;b.y+=dy*push;
+    }
+    ps.forEach(p=>{if(p.state==='in'&&!p.entering){p.x=clamp(p.x,minX(p),maxX(p));p.y=clamp(p.y,CT.y0+PR,CT.y1-PR);}});
+  }
+}
+
 function updatePlayer(p,dt){
   if(p.state==='out'){steer(p,p.dest.x,p.dest.y,1,dt,false);return;}
   if(p.entering){
-    steer(p,clamp(p.x,minX(p),maxX(p)),CT.y1-PR-20,1,dt,false);
-    if(p.y<CT.y1-PR-2)p.entering=false;
+    // Returning players come back in at their back corner (bottom of their end line)
+    steer(p,p.team==='red'?CT.x0+PR+14:CT.x1-PR-14,CT.y1-PR-14,1,dt,false);
+    if(p.y<CT.y1-PR-2&&(p.team==='red'?p.x>CT.x0+PR:p.x<CT.x1-PR))p.entering=false;
     return;
   }
   // Awareness: how quickly a player notices a ball coming at them
@@ -374,8 +478,29 @@ function wander(p,dt){
     // Players without a ball hang back behind their dotted line, deeper when the other side is armed
     const threat=inPlayers(opp(p.team)).some(o=>o.ball);
     const lineGap=Math.abs(MID-DOT[p.team]);
-    const depth=lineGap+10+(threat?rand(60,200)+p.s.aware*10:rand(0,150));
-    p.goal={x:clamp(p.team==='red'?MID-depth:MID+depth,minX(p),maxX(p)),y:rand(CT.y0+30,CT.y1-30)};
+    const cand=()=>{
+      const depth=lineGap+10+(threat?rand(60,200)+p.s.aware*10:rand(0,150));
+      return {x:clamp(p.team==='red'?MID-depth:MID+depth,minX(p),maxX(p)),y:rand(CT.y0+30,CT.y1-30)};
+    };
+    // Coach's spacing: 0.5 picks a random spot; higher picks the spot farthest from teammates,
+    // lower pulls the spot toward the team's center
+    const s=SPACING[p.team],mates=inPlayers(p.team).filter(m=>m!==p&&!m.entering);
+    const spots=mates.map(m=>m.goal&&!m.ball?m.goal:m);
+    let goal=cand();
+    if(spots.length&&s>0.5){
+      const tries=1+Math.round((s-0.5)*2*14);let best=-1;
+      for(let i=0;i<tries;i++){
+        const c=i?cand():goal,md=Math.min(...spots.map(q=>Math.hypot(q.x-c.x,q.y-c.y)));
+        if(md>best){best=md;goal=c;}
+      }
+    }else if(spots.length&&s<0.5){
+      const cx=spots.reduce((a,q)=>a+q.x,0)/spots.length,cy=spots.reduce((a,q)=>a+q.y,0)/spots.length,k=(0.5-s)*2*0.85;
+      goal={x:goal.x+(cx-goal.x)*k,y:goal.y+(cy-goal.y)*k};
+    }
+    // Still stay behind the dotted line
+    const lim=DOT[p.team]+(p.team==='red'?-10:10);
+    goal.x=clamp(p.team==='red'?Math.min(goal.x,lim):Math.max(goal.x,lim),minX(p),maxX(p));
+    p.goal=goal;
     p.goalT=rand(0.8,2);
   }
   steer(p,p.goal.x,p.goal.y,0.6,dt,true);
@@ -516,9 +641,10 @@ function knockOut(p){
   G.queue[p.team].push(p);setQueueDests(p.team);
 }
 // Sideline spacing shrinks with bigger teams so a full queue still fits
+// Out players line up below the field starting at their back corner, first out nearest the corner
 function setQueueDests(team){
-  const sp=Math.min(42,400/Math.max(1,teams[team].length-1));
-  G.queue[team].forEach((p,i)=>p.dest={x:team==='red'?MID-30-i*sp:MID+30+i*sp,y:CT.y1+52});
+  const sp=Math.min(36,380/Math.max(1,teams[team].length-1));
+  G.queue[team].forEach((p,i)=>p.dest={x:team==='red'?CT.x0+20+i*sp:CT.x1-20-i*sp,y:CT.y1+38});
 }
 // First out, first back in
 function returnPlayer(team){
@@ -540,7 +666,7 @@ function checkEnd(){
 const cv=$('cv'),ctx=cv.getContext('2d');
 let hoverP=null;
 function fmt(t){t=Math.max(0,t);return Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');}
-function nm(p){return `<b style="color:${COL[p.team]}">${p.name}</b>`;}
+function nm(p){return `<b style="color:${TXT[p.team]}">${p.name}</b>`;}
 function addLog(html){
   const d=document.createElement('div');
   d.innerHTML=`<span class="t">${fmt(G?G.time:0)}</span>${html}`;
@@ -555,12 +681,13 @@ function render(){
   ctx.moveTo(DOT.red,CT.y0);ctx.lineTo(DOT.red,CT.y1);ctx.moveTo(DOT.blue,CT.y0);ctx.lineTo(DOT.blue,CT.y1);
   ctx.stroke();ctx.setLineDash([]);
   ctx.textAlign='center';ctx.font='12px sans-serif';ctx.fillStyle='rgba(43,51,39,.55)';
-  ctx.fillText(LABEL.red+' sideline (out)',MID-200,CT.y1+90);ctx.fillText(LABEL.blue+' sideline (out)',MID+200,CT.y1+90);
+  ctx.textAlign='left';ctx.fillText(LABEL.red+' out line ↑',CT.x0,CT.y1+80);
+  ctx.textAlign='right';ctx.fillText('↑ '+LABEL.blue+' out line',CT.x1,CT.y1+80);
   // scoreboard
   const r=inPlayers('red').length,bl=inPlayers('blue').length;
   ctx.font='bold 18px sans-serif';
-  ctx.textAlign='left';ctx.fillStyle=COL.red;ctx.fillText(`${LABEL.red.toUpperCase()}  ${r} in`,CT.x0,38);
-  ctx.textAlign='right';ctx.fillStyle=COL.blue;ctx.fillText(`${bl} in  ${LABEL.blue.toUpperCase()}`,CT.x1,38);
+  ctx.textAlign='left';ctx.fillStyle=TXT.red;ctx.fillText(`${LABEL.red.toUpperCase()}  ${r} in`,CT.x0,38);
+  ctx.textAlign='right';ctx.fillStyle=TXT.blue;ctx.fillText(`${bl} in  ${LABEL.blue.toUpperCase()}`,CT.x1,38);
   ctx.textAlign='center';ctx.fillStyle='#2b3327';
   ctx.fillText(G.time>=GAME_LEN?'SUDDEN DEATH':fmt(GAME_LEN-G.time),MID,38);
   // players: sideline first so active players draw on top
@@ -568,7 +695,9 @@ function render(){
   order.forEach(p=>{
     ctx.globalAlpha=p.state==='out'?0.45:1;
     ctx.beginPath();ctx.arc(p.x,p.y,PR,0,Math.PI*2);ctx.fillStyle=COL[p.team];ctx.fill();
-    if(p.base.captain){ctx.strokeStyle='#f2c94c';ctx.lineWidth=3;ctx.stroke();}
+    // Light team colors get a thin dark outline so they stand out on the sage field; captains get a ring (navy on a gold team)
+    if(['#F3CD00','#BBE7F6','#A1AEB1'].includes(COL[p.team])){ctx.strokeStyle='rgba(43,51,39,.45)';ctx.lineWidth=1;ctx.stroke();}
+    if(p.base.captain){ctx.strokeStyle=COL[p.team]==='#F3CD00'?'#002244':'#F3CD00';ctx.lineWidth=3;ctx.stroke();}
     if(p===hoverP){ctx.strokeStyle='#2b3327';ctx.lineWidth=2;ctx.beginPath();ctx.arc(p.x,p.y,PR+5,0,Math.PI*2);ctx.stroke();}
     ctx.fillStyle='#2b3327';ctx.font='11px sans-serif';ctx.textAlign='center';
     ctx.fillText(p.name.replace('Captain ',''),p.x,p.y+PR+12);
@@ -637,7 +766,7 @@ function finish(winner,reason){
   const tbl=team=>`<table><tr><th>${LABEL[team]} (${team==='red'?'You':'CPU'})</th><th>Throws</th><th>Hits</th><th>Catches</th><th>Dodges</th><th>Deflections</th><th>Times out</th><th>Finish</th></tr>`+
     G.players.filter(p=>p.team===team).map(p=>`<tr><td>${nm(p)}${p.base.captain?' ★':''}${p===mvp?' 🏆':''}</td><td>${p.box.throws}</td><td>${p.box.hits}</td><td>${p.box.catches}</td><td>${p.box.dodges}</td><td>${p.box.blocks}</td><td>${p.box.outs}</td><td>${p.state==='in'?'In':'Out'}</td></tr>`).join('')+`</table>`;
   const mvpHTML=`<div style="background:#fdf6dd;border-radius:8px;padding:10px 12px;margin-bottom:12px">🏆 <b>Match MVP:</b> ${nm(mvp)} (${LABEL[mvp.team]}): ${mb.hits} hits, ${mb.catches} catches, ${mb.dodges} dodges, ${mb.blocks} deflections${mvp.state==='in'?', still on the field':''}.</div>`;
-  overBox.innerHTML=`<h2 style="margin-top:0;color:${COL[winner]}">${you?'You win!':LABEL.blue+' wins.'}</h2><p>${reason} Game time ${fmt(G.time)}.</p>${mvpHTML}${tbl('red')}${tbl('blue')}
+  overBox.innerHTML=`<h2 style="margin-top:0;color:${TXT[winner]}">${you?'You win!':LABEL.blue+' wins.'}</h2><p>${reason} Game time ${fmt(G.time)}.</p>${mvpHTML}${tbl('red')}${tbl('blue')}
     <button id="rematchBtn">Rematch (same teams)</button> <button id="redraftBtn">Redraft new kids</button> <button id="setupBtn">New setup</button> <button id="closeBtn">Hide match stats</button>`;
   overlay.style.display='flex';$('statsTop').style.display='none';
   $('setupBtn').onclick=showSetup;
@@ -654,7 +783,14 @@ $('redraftTop').onclick=newDraft;
 $('setupTop').onclick=showSetup;
 $('statsTop').onclick=()=>{overlay.style.display='flex';$('statsTop').style.display='none';};
 $('toDraftBtn').onclick=goToDraft;
-$('perTeam').oninput=updatePerTeamHint;
+$('perTeam').oninput=()=>{updatePerTeamHint();renderKidNames();};
+$('youReroll').onclick=()=>{SET.you.caps=captainOptions();renderSetup();};
+$('cpuReroll').onclick=()=>{SET.cpu.caps=captainOptions();renderSetup();};
+$('kidShuffle').onclick=()=>{SET.kidNames=shuffle(NAMES.slice()).slice(0,kidCount());renderKidNames();};
+$('spaceSlider').oninput=e=>{
+  SPACING.red=+e.target.value;$('spaceVal').textContent=SPACING.red.toFixed(2);
+  if(G)G.players.forEach(p=>{if(p.team==='red')p.goalT=0;});   // react right away
+};
 $('sortSel').innerHTML='<option value="overall">Overall</option>'+SKILLS.map(([k,l])=>`<option value="${k}">${l}</option>`).join('');
 $('sortSel').onchange=e=>{draftSort=e.target.value;renderDraft();};
 showSetup();
